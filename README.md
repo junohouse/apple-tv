@@ -57,10 +57,14 @@ frames.
 One key at a time. A second `hold` lets go of the first — two keys down at once is a state
 nothing can get out of, and on volume it runs to the top of the range.
 
-Neither variant can hold a scan key, because tvOS has none: scrubbing *is* a hold of left or
-right. `hold {what = "scan_forward"}` is refused by name rather than aliased to something that
-would move the wrong way. Over IR, volume cannot be held either — an Apple Remote has no volume
-buttons at all, since volume belongs to whatever the box is plugged into.
+Each variant is only *offered* the keys it has. `hold`'s `what` is gated per value by the
+capability that provides it, so the assistant and the validation gate both see arrows only on
+the IR driver, and arrows plus volume on the network one. Neither is offered a scan key,
+because tvOS has none — scrubbing *is* a hold of left or right, and aliasing it to something
+that moves the wrong way would be worse than not having it.
+
+Over IR, volume is absent for a real reason: an Apple Remote has no volume buttons at all,
+since volume belongs to whatever the box is plugged into.
 
 ## Deep links rot
 
