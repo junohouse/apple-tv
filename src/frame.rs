@@ -98,6 +98,16 @@ impl Framer {
     pub fn pending(&self) -> bool {
         !self.buffer.is_empty()
     }
+
+    /// The half-received tail, taking it out.
+    ///
+    /// A driver is re-entered fresh for every read and cannot own a `Framer` across them, so the
+    /// leftovers have to be handed back and stored on the instance. Without this a frame that
+    /// straddles two reads is lost, and since the next read starts mid-frame, so is every frame
+    /// after it.
+    pub fn take(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.buffer)
+    }
 }
 
 #[cfg(test)]

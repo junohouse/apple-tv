@@ -1,0 +1,28 @@
+[driver]
+id = "apple.tv.ir"
+name = "Apple TV (IR)"
+manufacturer = "Apple"
+version = "1.0.0"
+# No code at all. Everything this driver does is in `commands.toml`, which is why an IR-only
+# house never maps the Companion plugin its sibling needs — see the package loader.
+runtime = "declarative"
+
+# The same proxy contract, honestly narrowed. No `has_apps`, so nothing offers a channel list;
+# no `has_deep_link`, so a room asked for a title routes around this to a box that can honour
+# one. Declaring either would put "play Severance" in front of somebody and then do nothing.
+#
+# `has_search` is gone for the same reason: over IR there is no way to type.
+[[proxy]]
+id = 1
+type = "media_player"
+primary = true
+name = "Apple TV"
+capabilities = { has_transport = true, has_dpad = true, is_video_source = true, is_audio_source = true }
+
+# An emitter, wired by the installer to whichever port is pointed at the box. Everything above
+# resolves to a code name and core hands the port the payload — so this works the same on a
+# controller's own jack, a Global Caché, or a USB blaster.
+[[control]]
+id = 1
+kind = "ir_out"
+name = "IR Emitter"

@@ -1,0 +1,77 @@
+[driver]
+id = "apple.tv"
+name = "Apple TV"
+manufacturer = "Apple"
+version = "1.0.0"
+runtime = "native"
+# Names the package. Its IR sibling is the same product reached a poorer way, not a second
+# product, so this is the one a catalog should lead with.
+primary = true
+
+# An Apple TV is a source and nothing else: no screen, no inputs of its own. It is never a
+# room's video sink — the television it is plugged into is — so there is no `tv` proxy here.
+#
+# Volume is up/down only. The box has no volume of its own; it forwards over HDMI-CEC to
+# whatever it is plugged into, which can be nudged and cannot be set. Declaring
+# `has_discrete_volume` would put a slider in front of somebody that silently does nothing.
+[[proxy]]
+id = 1
+type = "media_player"
+primary = true
+name = "Apple TV"
+capabilities = { has_transport = true, has_dpad = true, has_apps = true, has_deep_link = true, has_search = true, has_up_down_volume = true, is_video_source = true, is_audio_source = true }
+
+# Companion. The port is not fixed — the device picks one at boot and announces it in its SRV
+# record — so there is no `port` here and the address's own `Port` property carries it.
+#
+# `binary` because this is length-prefixed frames inside a ChaCha20-Poly1305 session, not lines
+# of text: read down the text path a frame is cut at the first 0x0A and every byte that is not
+# valid UTF-8 is replaced, which for a ciphertext is most of them.
+#
+# `keepalive` because the session is the point. Pair Verify costs two round trips, and an event
+# subscription only delivers anything while the socket is up.
+[[transport]]
+kind = "network"
+discovery = "mdns"
+keepalive = true
+binary = true
+
+[[property]]
+name = "Address"
+type = "string"
+tooltip = "IP or hostname of the Apple TV"
+
+[[property]]
+name = "Port"
+type = "number"
+tooltip = "Companion port, announced over mDNS. Rarely needs changing."
+default = 49152
+
+# The pairing, as it came back from Pair Setup. All four are needed to reconnect; without them
+# the device has to be paired again, which means somebody standing in front of the television.
+[[property]]
+name = "Device id"
+type = "string"
+tooltip = "The Apple TV's pairing identifier. Set during setup."
+
+[[property]]
+name = "Device key"
+type = "string"
+tooltip = "The Apple TV's long-term public key. Set during setup."
+
+[[property]]
+name = "Controller id"
+type = "string"
+tooltip = "Juno's pairing identifier for this device. Set during setup."
+
+# The one secret here that the Apple TV does not already know.
+[[property]]
+name = "Controller key"
+type = "password"
+tooltip = "Juno's long-term key for this device. Set during setup."
+
+[discovery]
+# `_companion-link._tcp` is the one that matters — it is the service that carries control.
+# `_airplay._tcp` is browsed too because its TXT record names the model, which is the only way
+# to tell two identically-named televisions apart before either has been set up.
+mdns = ["_companion-link._tcp", "_airplay._tcp"]

@@ -1,0 +1,47 @@
+# Apple TV over IR — the whole driver.
+#
+# Every command resolves a code *name* against the `[ir]` table below and core hands the
+# emitter the payload. So this file is the mapping, and the table is the data.
+#
+# The Apple TV's own remote is Bluetooth, not IR. What responds to IR is a compatibility path
+# Apple kept for control systems and universal remotes: NEC, and only the handful of keys
+# below. There is no app launching, no title, no text entry and no power — the box has no
+# discrete power state to command, which is why `on` and `off` are absent rather than faked.
+
+command.play = { control = 1, invoke = "send", args = { code = "PLAY_PAUSE" } }
+command.pause = { control = 1, invoke = "send", args = { code = "PLAY_PAUSE" } }
+command.stop = { control = 1, invoke = "send", args = { code = "MENU" } }
+
+# tvOS scrubs by holding left/right rather than by a transport key, so a tap is the closest
+# thing IR has to a skip. Declared in the manifest as `has_transport` only; `has_skip` and
+# `has_scan` are deliberately not claimed.
+command.dpad_up = { control = 1, invoke = "send", args = { code = "UP" } }
+command.dpad_down = { control = 1, invoke = "send", args = { code = "DOWN" } }
+command.dpad_left = { control = 1, invoke = "send", args = { code = "LEFT" } }
+command.dpad_right = { control = 1, invoke = "send", args = { code = "RIGHT" } }
+command.dpad_select = { control = 1, invoke = "send", args = { code = "SELECT" } }
+command.dpad_menu = { control = 1, invoke = "send", args = { code = "MENU" } }
+command.dpad_back = { control = 1, invoke = "send", args = { code = "MENU" } }
+command.dpad_home = { control = 1, invoke = "send", args = { code = "HOME" } }
+
+[ir]
+format = "pronto"
+
+# ponytail: the code names and the mapping above are right; the payloads are not filled in.
+#
+# Apple TV IR is NEC, and the pronto strings for it are in every emitter vendor's database and
+# in any learned remote — but nothing here has been captured against real hardware, and a
+# fabricated pronto string is worse than an empty one: it emits something, the box ignores it,
+# and it looks like a wiring fault. So these are blank on purpose.
+#
+# To fill them: learn each key from an Apple Remote onto the emitter, or pull the NEC codes
+# from the emitter vendor's database, and paste the pronto hex here. Nothing else changes —
+# the commands above already resolve by name.
+codes.UP = ""
+codes.DOWN = ""
+codes.LEFT = ""
+codes.RIGHT = ""
+codes.SELECT = ""
+codes.MENU = ""
+codes.HOME = ""
+codes.PLAY_PAUSE = ""
