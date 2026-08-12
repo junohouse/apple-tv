@@ -1,47 +1,55 @@
 # Apple TV over IR — the whole driver.
 #
-# Every command resolves a code *name* against the `[ir]` table below and core hands the
-# emitter the payload. So this file is the mapping, and the table is the data.
+# Each command resolves a code *name* against the `[ir]` table and core hands the emitter the
+# pronto payload. `dpad` substitutes its own `key` argument as the name, so one line covers
+# every direction rather than eight.
 #
-# The Apple TV's own remote is Bluetooth, not IR. What responds to IR is a compatibility path
-# Apple kept for control systems and universal remotes: NEC, and only the handful of keys
-# below. There is no app launching, no title, no text entry and no power — the box has no
-# discrete power state to command, which is why `on` and `off` are absent rather than faked.
+# The Apple TV's own Siri Remote is Bluetooth. What answers IR is the older aluminium Apple
+# Remote's protocol, which every Apple TV including the 4K still accepts — a modified NEC at
+# 38 kHz. It is a six-button remote, so this is a six-button driver: no apps, no titles, no
+# text, and no power (the box has no discrete power state to command, which is why `on` and
+# `off` are absent rather than faked).
 
-command.play = { control = 1, invoke = "send", args = { code = "PLAY_PAUSE" } }
-command.pause = { control = 1, invoke = "send", args = { code = "PLAY_PAUSE" } }
-command.stop = { control = 1, invoke = "send", args = { code = "MENU" } }
+command.play = { control = 1, invoke = "send", args = { code = "playpause" } }
+command.pause = { control = 1, invoke = "send", args = { code = "playpause" } }
 
-# tvOS scrubs by holding left/right rather than by a transport key, so a tap is the closest
-# thing IR has to a skip. Declared in the manifest as `has_transport` only; `has_skip` and
-# `has_scan` are deliberately not claimed.
-command.dpad_up = { control = 1, invoke = "send", args = { code = "UP" } }
-command.dpad_down = { control = 1, invoke = "send", args = { code = "DOWN" } }
-command.dpad_left = { control = 1, invoke = "send", args = { code = "LEFT" } }
-command.dpad_right = { control = 1, invoke = "send", args = { code = "RIGHT" } }
-command.dpad_select = { control = 1, invoke = "send", args = { code = "SELECT" } }
-command.dpad_menu = { control = 1, invoke = "send", args = { code = "MENU" } }
-command.dpad_back = { control = 1, invoke = "send", args = { code = "MENU" } }
-command.dpad_home = { control = 1, invoke = "send", args = { code = "HOME" } }
+# Menu, not a stop code — there is no stop on this remote, and Menu is what leaves what is
+# playing. The same key is `back`, which is why both names resolve to it below.
+command.stop = { control = 1, invoke = "send", args = { code = "menu" } }
+
+# `{key}` is substituted from the command's own argument before the code is looked up, so the
+# table below is keyed by the contract's own key names.
+command.dpad = { control = 1, invoke = "send", args = { code = "{key}" } }
 
 [ir]
 format = "pronto"
 
-# ponytail: the code names and the mapping above are right; the payloads are not filled in.
+# Captured from the aluminium Apple Remote and published by Just Add Power for control-system
+# use; confirmed by AVS Forum as still working on Apple TV 4K, which kept the IR receiver and
+# the protocol unchanged.
 #
-# Apple TV IR is NEC, and the pronto strings for it are in every emitter vendor's database and
-# in any learned remote — but nothing here has been captured against real hardware, and a
-# fabricated pronto string is worse than an empty one: it emits something, the box ignores it,
-# and it looks like a wiring fault. So these are blank on purpose.
-#
-# To fill them: learn each key from an Apple Remote onto the emitter, or pull the NEC codes
-# from the emitter vendor's database, and paste the pronto hex here. Nothing else changes —
-# the commands above already resolve by name.
-codes.UP = ""
-codes.DOWN = ""
-codes.LEFT = ""
-codes.RIGHT = ""
-codes.SELECT = ""
-codes.MENU = ""
-codes.HOME = ""
-codes.PLAY_PAUSE = ""
+# Two things to notice in the data. Carrier is `006C` — 38 kHz, as the protocol wants. And
+# `playpause` and `select` are `0044` burst pairs where the others are `0022`: Apple sends
+# those two as a doubled frame, so a "tidied" single-frame version of them does nothing.
+
+# Apple TV has no Home over IR at all: on the remote it is a *hold* of Menu, and a single
+# emitted code cannot express a hold. Deliberately absent rather than aliased to Menu — Menu
+# goes back one level, which is not the same thing, and quietly doing the wrong thing is worse
+# than an emitter refusing a code it does not have. `info` is absent for the same reason.
+
+codes.menu = "0000 006C 0022 0002 015B 00AD 0015 0015 0015 0041 0015 0041 0015 0041 0015 0015 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0015 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0015 0015 0015 0015 0041 0015 0015 0015 0041 0015 0041 0015 0015 0015 0617 015B 0057 0015 0E76"
+
+# The same key. On Apple TV, Menu *is* back — there is no separate one.
+codes.back = "0000 006C 0022 0002 015B 00AD 0015 0015 0015 0041 0015 0041 0015 0041 0015 0015 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0015 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0015 0015 0015 0015 0041 0015 0015 0015 0041 0015 0041 0015 0015 0015 0617 015B 0057 0015 0E76"
+
+codes.select = "0000 006C 0044 0002 015B 00AD 0015 0015 0015 0041 0015 0041 0015 0041 0015 0015 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0041 0015 0015 0015 0041 0015 0041 0015 0041 0015 0015 0015 0041 0015 0015 0015 0041 0015 0015 0015 0015 0015 0041 0015 0015 0015 0041 0015 0041 0015 0015 0015 05C4 015B 00AD 0015 0015 0015 0041 0015 0041 0015 0041 0015 0015 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0015 0015 0015 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0015 0015 0015 0015 0041 0015 0015 0015 0041 0015 0041 0015 0015 0015 05C4 015B 0057 0015 0E76"
+
+codes.up = "0000 006C 0022 0002 015B 00AD 0015 0015 0015 0041 0015 0041 0015 0041 0015 0015 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0041 0015 0041 0015 0015 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0015 0015 0015 0015 0041 0015 0015 0015 0041 0015 0041 0015 0015 0015 05C0 015B 0057 0015 0E75"
+
+codes.down = "0000 006C 0022 0002 015B 00AD 0015 0015 0015 0041 0015 0041 0015 0041 0015 0015 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0041 0015 0015 0015 0041 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0015 0015 0015 0015 0041 0015 0015 0015 0041 0015 0041 0015 0015 0015 05C1 015B 0057 0015 0E75"
+
+codes.left = "0000 006C 0022 0002 015B 00AD 0015 0015 0015 0041 0015 0041 0015 0041 0015 0015 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0015 0015 0015 0015 0015 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0015 0015 0015 0015 0041 0015 0015 0015 0041 0015 0041 0015 0015 0015 0618 015B 0057 0015 0E74"
+
+codes.right = "0000 006C 0022 0002 015B 00AD 0015 0015 0015 0041 0015 0041 0015 0041 0015 0015 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0041 0015 0041 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0015 0015 0015 0015 0041 0015 0015 0015 0041 0015 0041 0015 0015 0015 05C0 015B 0057 0015 0E75"
+
+codes.playpause = "0000 006C 0044 0002 015B 00AD 0015 0015 0015 0041 0015 0041 0015 0041 0015 0015 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0015 0015 0041 0015 0041 0015 0041 0015 0041 0015 0015 0015 0041 0015 0015 0015 0041 0015 0015 0015 0015 0015 0041 0015 0015 0015 0041 0015 0041 0015 0015 0015 05C3 015B 00AD 0015 0015 0015 0041 0015 0041 0015 0041 0015 0015 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0015 0015 0015 0015 0041 0015 0015 0015 0015 0015 0015 0015 0015 0015 0015 0015 0041 0015 0015 0015 0015 0015 0041 0015 0015 0015 0041 0015 0041 0015 0015 0015 05C3 015B 0057 0015 0E74"

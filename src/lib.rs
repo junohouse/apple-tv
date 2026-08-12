@@ -547,7 +547,15 @@ fn typed_address() -> Field {
 }
 
 impl AppleTv {
-    /// Offer what answered over mDNS, and let an address be typed anyway.
+    /// The value of the row that means "do not use the network at all".
+    ///
+    /// A sentinel rather than a separate question. IR has to be reachable when discovery found
+    /// nothing *and* no address is known — an Apple TV behind an emitter has no address that
+    /// means anything, and asking for one before offering IR makes the commonest reason to pick
+    /// IR the one case where you cannot.
+    const IR_ROW: &'static str = "__ir__";
+
+    /// Offer what answered over mDNS, an address to type, and IR — all in one step.
     ///
     /// Unlike a Roku, there is nothing to enrich with a second request: the mDNS reply already
     /// carries the name somebody gave the television and the model, in its TXT record, and the
@@ -567,22 +575,7 @@ impl AppleTv {
             })
             .unwrap_or_default();
 
-        if found.is_empty() {
-            return (
-                SetupStep::Form {
-                    title: "Find your Apple TV".into(),
-                    body: "Nothing answered on the network. Enter its address — on the device, \
-                           Settings → Network. It has to be awake and on the same network as \
-                           the controller; an Apple TV asleep on ethernet still answers, one on \
-                           Wi-Fi often does not."
-                        .into(),
-                    fields: vec![typed_address()],
-                },
-                json!({ "phase": "mode" }),
-            );
-        }
-
-        let rows: Vec<PickRow> = found
+        let mut rows: Vec<PickRow> = found
             .iter()
             .filter_map(|f| {
                 let address = f.get("address")?.as_str()?.to_string();
@@ -604,19 +597,52 @@ impl AppleTv {
                 Some(PickRow {
                     value: format!("{address}:{port}"),
                     cells: vec![name, model, address],
-                    note: String::new(),
+                    note: "apps, and can open a title".into(),
                 })
             })
             .collect();
 
+        let discovered = rows.len();
+
+        // Always last, always there. An Apple TV on a VLAN the controller cannot reach, or one
+        // somebody simply wants on an emitter, is not a failure to discover — it is a different
+        // answer to the same question, and it needs no address at all.
+        rows.push(PickRow {
+            value: Self::IR_ROW.to_string(),
+            cells: vec![
+                "Use IR instead".into(),
+                "IR emitter".into(),
+                "no network".into(),
+            ],
+            note: "arrows, select, menu, play — no apps and no titles".into(),
+        });
+
+        let (title, body) = if discovered == 0 {
+            (
+                "No Apple TV answered".to_string(),
+                "Nothing answered on the network. It has to be awake and on the same network as \
+                 the controller — one asleep on ethernet still answers, one on Wi-Fi usually \
+                 does not, and plenty of networks block multicast entirely.\n\nEnter its \
+                 address by hand (Settings → Network on the device), or set it up for IR, which \
+                 needs no address."
+                    .to_string(),
+            )
+        } else {
+            (
+                format!(
+                    "Found {discovered} Apple TV{}",
+                    if discovered == 1 { "" } else { "s" }
+                ),
+                "Pick one to control it over the network — that is the only way to launch an \
+                 app or open a title. IR is there for a box the controller cannot reach."
+                    .to_string(),
+            )
+        };
+
         (
             SetupStep::Pick {
-                title: format!(
-                    "Found {} Apple TV{}",
-                    rows.len(),
-                    if rows.len() == 1 { "" } else { "s" }
-                ),
-                body: "Pick one. The next step asks how Juno should control it.".into(),
+                title,
+                body,
                 columns: vec!["Name".into(), "Model".into(), "Address".into()],
                 rows,
                 field: "address".into(),
@@ -639,13 +665,29 @@ impl AppleTv {
         match phase {
             "start" => Self::ask_for_address(state),
 
-            // Network or IR. This is the whole reason the package carries two drivers: an Apple
-            // TV behind an emitter is a d-pad and nothing else, and saying so here is better
-            // than shipping one driver that claims to deep link and then cannot.
+            // What was picked decides everything: the IR row is an answer, not a fallback, so
+            // it finishes here without an address, a probe, or a pairing.
             "mode" => {
                 let Some(address) = get("address") else {
                     return Self::ask_for_address(state);
                 };
+
+                if address == Self::IR_ROW {
+                    return (
+                        SetupStep::done(vec![Candidate {
+                            label: "Apple TV (IR)".into(),
+                            kind: "Apple TV".into(),
+                            driver_id: "apple.tv.ir".into(),
+                            properties: Default::default(),
+                            verified: "IR only — bind an emitter to it, and see its README \
+                                       about the codes"
+                                .into(),
+                            ..Default::default()
+                        }]),
+                        Value::Null,
+                    );
+                }
+
                 let (host, port) = match address.rsplit_once(':') {
                     Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) => {
                         (h.to_string(), p.parse::<u16>().unwrap_or(49152))
@@ -654,47 +696,6 @@ impl AppleTv {
                     // so there is no good default — but something has to be tried.
                     _ => (address.clone(), 49152),
                 };
-
-                (
-                    SetupStep::Form {
-                        title: "How should Juno control it?".into(),
-                        body: "Over the network, Juno can launch apps and open a title directly \
-                               — \"play Severance in the den\". It has to be paired first, with \
-                               a code the Apple TV puts on screen.\n\nOver IR it behaves like \
-                               the remote: arrows, select, menu, play. No apps, no titles. \
-                               Choose this if the Apple TV is somewhere the controller cannot \
-                               reach it on the network."
-                            .into(),
-                        fields: vec![Field {
-                            name: "mode".into(),
-                            label: "Control".into(),
-                            kind: "list".into(),
-                            help: String::new(),
-                            default: Some(json!("Network")),
-                            options: vec!["Network".into(), "IR".into()],
-                            required: true,
-                        }],
-                    },
-                    json!({ "phase": "chose_mode", "host": host, "port": port }),
-                )
-            }
-
-            "chose_mode" => {
-                let host = get("host").unwrap_or_default();
-                let port = state.get("port").and_then(Value::as_u64).unwrap_or(49152);
-                if get("mode").as_deref() == Some("IR") {
-                    return (
-                        SetupStep::done(vec![Candidate {
-                            label: "Apple TV (IR)".into(),
-                            kind: "Apple TV".into(),
-                            driver_id: "apple.tv.ir".into(),
-                            properties: Default::default(),
-                            verified: "controlled by IR — bind an emitter to it".into(),
-                            ..Default::default()
-                        }]),
-                        Value::Null,
-                    );
-                }
 
                 // M1. The Apple TV puts a code on screen when this arrives.
                 let payload = opack::pack(&opack::dict([

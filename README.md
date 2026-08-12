@@ -36,8 +36,14 @@ That pairing is stored as four properties and reused on every connection afterwa
 Apple TV is factory reset, the stored key stops matching and setup has to be run again — the
 driver says so rather than failing quietly.
 
-For **IR**, choose it at step 3 and bind an emitter to the driver's IR connection. See the note
-in `commands.toml`: the code names are right, the pronto payloads are blank on purpose.
+For **IR**, pick the "Use IR instead" row — it is always in the list, whether or not anything
+was discovered, and needs no address. Then bind an emitter to the driver's IR connection.
+
+The codes are the aluminium Apple Remote's, which every Apple TV including the 4K still
+accepts. There is no IR **Home**: on the remote it is a *hold* of Menu, and a single emitted
+code cannot express a hold. It is left out rather than aliased to Menu — Menu goes back one
+level, which is not the same thing, and an emitter refusing a code it does not have is better
+than quietly doing something else.
 
 ## Deep links rot
 
