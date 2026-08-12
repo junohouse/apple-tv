@@ -3,7 +3,7 @@ id = "apple.tv"
 name = "Apple TV"
 manufacturer = "Apple"
 version = "1.0.0"
-runtime = "native"
+runtime = "wasm"
 # Names the package. Its IR sibling is the same product reached a poorer way, not a second
 # product, so this is the one a catalog should lead with.
 primary = true

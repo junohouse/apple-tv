@@ -3,3 +3,4 @@ dist/
 driver-macos-*.dylib
 driver-linux-*.so
 driver-windows-*.dll
+driver.wasm
