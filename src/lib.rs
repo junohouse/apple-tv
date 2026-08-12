@@ -56,6 +56,19 @@ mod hid {
     pub const PLAY_PAUSE: u64 = 14;
 }
 
+/// A pairing frame's payload: the TLV, whatever flags the step needs, and a transaction id.
+///
+/// `_x` is on *every* OPACK frame, auth ones included — the reference adds it in the one place
+/// all sends go through, which is easy to miss when the pairing frames are built by hand. A
+/// frame without it is a frame the device cannot match a reply to.
+fn pairing_frame(tlv: Vec<u8>, flag: (&str, u64), xid: u64) -> Val {
+    opack::dict([
+        ("_pd", Val::Data(tlv)),
+        (flag.0, Val::Int(flag.1)),
+        ("_x", Val::Int(xid)),
+    ])
+}
+
 /// The `hold` keys this box actually has.
 ///
 /// Narrower than the contract's list, and deliberately so — the contract cannot gate `what` per
@@ -263,10 +276,7 @@ impl DriverModule for AppleTv {
         inst.scratch.insert("verify_seed".into(), json!(hex(&seed)));
         let (_, tlv) = srp::verify_start(seed);
 
-        let payload = opack::pack(&opack::dict([
-            ("_pd", Val::Data(tlv)),
-            ("_auTy", Val::Int(4)),
-        ]));
+        let payload = opack::pack(&pairing_frame(tlv, ("_auTy", 4), 1));
         match frame::encode(frame::PV_START, &payload, None, 0) {
             Ok(bytes) => vec![HostCall::Tx {
                 control: 0,
@@ -524,7 +534,7 @@ impl AppleTv {
                         }
                     };
 
-                let payload = opack::pack(&opack::dict([("_pd", Val::Data(tlv))]));
+                let payload = opack::pack(&pairing_frame(tlv, ("_auTy", 4), 2));
                 let Ok(bytes) = frame::encode(frame::PV_NEXT, &payload, None, 0) else {
                     return Vec::new();
                 };
@@ -576,6 +586,13 @@ impl AppleTv {
             }
 
             frame::E_OPACK => {
+                // How tvOS says a command failed. Without reading it, a launch that the device
+                // refused — an app that is not installed, a URL it would not open — looks
+                // exactly like one that worked, because nothing else comes back either way.
+                if let Some(why) = message.get("_em").and_then(Val::as_str) {
+                    return vec![HostCall::warn(format!("apple-tv: {why}"))];
+                }
+
                 // The app list. This is what makes "watch Netflix" possible at all: the device's
                 // apps are not knowable when the contract is written, so it says.
                 let content = message.get("_c");
@@ -776,10 +793,7 @@ impl AppleTv {
                 };
 
                 // M1. The Apple TV puts a code on screen when this arrives.
-                let payload = opack::pack(&opack::dict([
-                    ("_pd", Val::Data(srp::setup_start())),
-                    ("_pwTy", Val::Int(1)),
-                ]));
+                let payload = opack::pack(&pairing_frame(srp::setup_start(), ("_pwTy", 1), 1));
                 let Ok(bytes) = frame::encode(frame::PS_START, &payload, None, 0) else {
                     return (
                         SetupStep::Failed {
@@ -886,10 +900,7 @@ impl AppleTv {
                     Err(e) => return (SetupStep::Failed { reason: e }, Value::Null),
                 };
 
-                let payload = opack::pack(&opack::dict([
-                    ("_pd", Val::Data(tlv)),
-                    ("_pwTy", Val::Int(1)),
-                ]));
+                let payload = opack::pack(&pairing_frame(tlv, ("_pwTy", 1), 2));
                 let Ok(bytes) = frame::encode(frame::PS_NEXT, &payload, None, 0) else {
                     return (
                         SetupStep::Failed {
@@ -970,10 +981,7 @@ impl AppleTv {
                     Ok(t) => t,
                     Err(e) => return (SetupStep::Failed { reason: e }, Value::Null),
                 };
-                let payload = opack::pack(&opack::dict([
-                    ("_pd", Val::Data(tlv)),
-                    ("_pwTy", Val::Int(1)),
-                ]));
+                let payload = opack::pack(&pairing_frame(tlv, ("_pwTy", 1), 3));
                 let Ok(bytes) = frame::encode(frame::PS_NEXT, &payload, None, 0) else {
                     return (
                         SetupStep::Failed {
