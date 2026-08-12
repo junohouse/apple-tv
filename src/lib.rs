@@ -56,6 +56,24 @@ mod hid {
     pub const PLAY_PAUSE: u64 = 14;
 }
 
+/// The `hold` keys this box actually has.
+///
+/// Narrower than the contract's list, and deliberately so — the contract cannot gate `what` per
+/// key, so refusing here is the only place the truth gets told. tvOS has no scan keys at all:
+/// scrubbing is a hold of left or right, which is why `scan_forward` is absent rather than
+/// aliased to something that would move the wrong way.
+fn holdable(what: &str) -> Option<u64> {
+    Some(match what {
+        "volume_up" => hid::VOLUME_UP,
+        "volume_down" => hid::VOLUME_DOWN,
+        "up" => hid::UP,
+        "down" => hid::DOWN,
+        "left" => hid::LEFT,
+        "right" => hid::RIGHT,
+        _ => return None,
+    })
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -134,20 +152,40 @@ impl AppleTv {
         )
     }
 
-    /// A button, as a press and a release. tvOS wants both — a press with no release leaves the
-    /// key held down, which on an arrow scrolls forever.
+    /// Press a button and let it go again — a tap.
+    ///
+    /// tvOS wants both halves. A press with no release leaves the key down, which on an arrow
+    /// scrolls until something else stops it; that is a real gesture, but it is [`Self::hold`]
+    /// and it has to be asked for.
     fn button(inst: &mut Instance, code: u64) -> Vec<HostCall> {
-        let mut out = Self::request(
+        let mut out = Self::press(inst, code);
+        out.extend(Self::lift(inst, code));
+        out
+    }
+
+    fn press(inst: &mut Instance, code: u64) -> Vec<HostCall> {
+        Self::request(
             inst,
             "_hidC",
             opack::dict([("_hBtS", Val::Int(1)), ("_hidC", Val::Int(code))]),
-        );
-        out.extend(Self::request(
+        )
+    }
+
+    fn lift(inst: &mut Instance, code: u64) -> Vec<HostCall> {
+        Self::request(
             inst,
             "_hidC",
             opack::dict([("_hBtS", Val::Int(2)), ("_hidC", Val::Int(code))]),
-        ));
-        out
+        )
+    }
+
+    /// The key a `hold` is holding, so `release` knows what to let go of.
+    ///
+    /// One at a time, which is what the contract says and what a hand does. A second `hold`
+    /// releases the first rather than stacking: two keys held at once on a remote that has one
+    /// finger on it is a state nothing can get out of.
+    fn held(inst: &Instance) -> Option<u64> {
+        inst.scratch.get("held").and_then(Value::as_u64)
     }
 }
 
@@ -188,8 +226,12 @@ impl Session {
         inst.scratch.insert("in".into(), json!(n + 1));
     }
 
+    /// Forget the session. Also forgets a key that was being held — the release for it can no
+    /// longer be sent down a socket that is gone, and tvOS drops HID state with the session, so
+    /// remembering it would only mean the *next* connection sent a release for a key nothing is
+    /// holding.
     fn clear(inst: &mut Instance) {
-        for k in ["write", "read", "out", "in", "verify_seed", "buffer"] {
+        for k in ["write", "read", "out", "in", "verify_seed", "buffer", "held"] {
             inst.scratch.remove(k);
         }
     }
@@ -389,6 +431,42 @@ impl DriverModule for AppleTv {
 
             "volume_up" => Self::button(inst, hid::VOLUME_UP),
             "volume_down" => Self::button(inst, hid::VOLUME_DOWN),
+
+            // A ramp: press and do not let go. The device repeats on its own for as long as the
+            // key is down, which is why nothing here loops.
+            "hold" => {
+                let Some(what) = args.get("what").and_then(Value::as_str) else {
+                    return vec![HostCall::warn("apple-tv: hold needs a key")];
+                };
+                let Some(code) = holdable(what) else {
+                    // tvOS has no scan keys — scrubbing is a hold of left or right — so asking
+                    // for one is a mistake worth naming rather than a silent no-op.
+                    return vec![HostCall::warn(format!(
+                        "apple-tv: `{what}` cannot be held; try up, down, left, right, \
+                         volume_up or volume_down"
+                    ))];
+                };
+                // A second hold lets go of the first. Stacking them would leave a key down that
+                // nothing has a name for any more.
+                let mut out = match Self::held(inst) {
+                    Some(prev) if prev != code => Self::lift(inst, prev),
+                    _ => Vec::new(),
+                };
+                inst.scratch.insert("held".into(), json!(code));
+                out.extend(Self::press(inst, code));
+                out
+            }
+
+            "release" => match Self::held(inst) {
+                Some(code) => {
+                    inst.scratch.remove("held");
+                    Self::lift(inst, code)
+                }
+                // Releasing nothing is not an error. A rule that brackets a hold will send this
+                // after a reconnect cleared the state, and warning about it would put a line in
+                // the log every time somebody let go of a button.
+                None => Vec::new(),
+            },
 
             "search" => Self::button(inst, hid::HOME),
 
@@ -1062,3 +1140,132 @@ fn uuid_like(seed: &[u8; 32]) -> String {
 }
 
 export_driver!(AppleTv);
+
+#[cfg(test)]
+mod hold_tests {
+    use super::*;
+
+    /// An instance with a session already up, so `send` produces frames rather than a warning.
+    fn connected() -> Instance {
+        let mut inst = Instance::new(1);
+        inst.scratch.insert("write".into(), json!(hex(&[1u8; 32])));
+        inst.scratch.insert("read".into(), json!(hex(&[2u8; 32])));
+        inst.scratch.insert("out".into(), json!(0));
+        inst.scratch.insert("in".into(), json!(0));
+        inst
+    }
+
+    fn frames(calls: &[HostCall]) -> usize {
+        calls
+            .iter()
+            .filter(|c| matches!(c, HostCall::Tx { .. }))
+            .count()
+    }
+
+    fn warned(calls: &[HostCall]) -> bool {
+        calls
+            .iter()
+            .any(|c| matches!(c, HostCall::Log { level, .. } if level == "warn"))
+    }
+
+    /// A tap is two frames — press and release. A hold is one, and the device repeats on its
+    /// own until the second arrives. Sending both for a hold is just a tap, and the ramp never
+    /// happens.
+    #[test]
+    fn a_hold_presses_without_releasing_and_a_tap_does_both() {
+        let d = AppleTv;
+        let mut inst = connected();
+
+        let tap = d.on_command(&mut inst, MEDIA, "volume_up", &Args::new());
+        assert_eq!(frames(&tap), 2, "a tap is press and release");
+
+        let mut inst = connected();
+        let hold = d.on_command(
+            &mut inst,
+            MEDIA,
+            "hold",
+            &Args::from([("what".to_string(), json!("volume_up"))]),
+        );
+        assert_eq!(frames(&hold), 1, "a hold presses and stops there");
+        assert_eq!(AppleTv::held(&inst), Some(hid::VOLUME_UP));
+
+        let release = d.on_command(&mut inst, MEDIA, "release", &Args::new());
+        assert_eq!(frames(&release), 1);
+        assert_eq!(AppleTv::held(&inst), None, "the key is no longer held");
+    }
+
+    /// One finger, one button. A second hold has to let go of the first, or the first key is
+    /// down forever with nothing left that names it — and on volume that runs to the top.
+    #[test]
+    fn a_second_hold_releases_the_first() {
+        let d = AppleTv;
+        let mut inst = connected();
+
+        d.on_command(
+            &mut inst,
+            MEDIA,
+            "hold",
+            &Args::from([("what".to_string(), json!("volume_up"))]),
+        );
+        let second = d.on_command(
+            &mut inst,
+            MEDIA,
+            "hold",
+            &Args::from([("what".to_string(), json!("down"))]),
+        );
+
+        assert_eq!(
+            frames(&second),
+            2,
+            "letting go of the old key and pressing the new one"
+        );
+        assert_eq!(AppleTv::held(&inst), Some(hid::DOWN));
+    }
+
+    /// Releasing nothing is not an error — a rule that brackets a hold will do it after a
+    /// reconnect cleared the state, and a warning there is a log line every time somebody lets
+    /// go of a button.
+    #[test]
+    fn releasing_nothing_is_quiet() {
+        let d = AppleTv;
+        let mut inst = connected();
+        let out = d.on_command(&mut inst, MEDIA, "release", &Args::new());
+        assert!(out.is_empty(), "nothing to say and nothing to send");
+    }
+
+    /// The contract lists keys this box does not have. tvOS scrubs by holding an arrow, so
+    /// there is no scan key to map — and mapping it to one that moves the wrong way would be
+    /// worse than refusing.
+    #[test]
+    fn a_key_this_box_does_not_have_is_refused_by_name() {
+        let d = AppleTv;
+        let mut inst = connected();
+        let out = d.on_command(
+            &mut inst,
+            MEDIA,
+            "hold",
+            &Args::from([("what".to_string(), json!("scan_forward"))]),
+        );
+        assert!(warned(&out), "an unsupported key should say so");
+        assert_eq!(frames(&out), 0);
+        assert_eq!(AppleTv::held(&inst), None);
+    }
+
+    /// A dropped connection must not leave a key remembered as held: the release cannot be sent
+    /// down a socket that is gone, and the next connection would send one for nothing.
+    #[test]
+    fn reconnecting_forgets_a_held_key() {
+        let d = AppleTv;
+        let mut inst = connected();
+        d.on_command(
+            &mut inst,
+            MEDIA,
+            "hold",
+            &Args::from([("what".to_string(), json!("left"))]),
+        );
+        assert!(AppleTv::held(&inst).is_some());
+
+        d.on_bind(&mut inst);
+        assert_eq!(AppleTv::held(&inst), None);
+    }
+}

@@ -19,7 +19,7 @@ id = 1
 type = "media_player"
 primary = true
 name = "Apple TV"
-capabilities = { has_transport = true, has_dpad = true, has_apps = true, has_deep_link = true, has_search = true, has_up_down_volume = true, is_video_source = true, is_audio_source = true }
+capabilities = { has_transport = true, has_dpad = true, has_apps = true, has_deep_link = true, has_search = true, has_hold = true, has_up_down_volume = true, is_video_source = true, is_audio_source = true }
 
 # Companion. The port is not fixed — the device picks one at boot and announces it in its SRV
 # record — so there is no `port` here and the address's own `Port` property carries it.

@@ -10,6 +10,7 @@ One product, two ways in. The package carries both and setup asks which.
 | **open a title** | **yes** | no |
 | d-pad, play/pause, menu | yes | yes |
 | volume | up/down, over HDMI-CEC | no |
+| hold a key (ramp) | arrows and volume | arrows |
 
 An IR-only install never loads the plugin — the package loader builds each driver from the
 runtime its own manifest declares.
@@ -44,6 +45,22 @@ accepts. There is no IR **Home**: on the remote it is a *hold* of Menu, and a si
 code cannot express a hold. It is left out rather than aliased to Menu — Menu goes back one
 level, which is not the same thing, and an emitter refusing a code it does not have is better
 than quietly doing something else.
+
+## Holding a key
+
+`hold {what}` and `release` bracket a ramp — a keypad's `held`/`released` drives them directly.
+Tapping `down` forty times is a different gesture from holding it, and both ends of the driver
+treat it that way: over the network a hold is a press with no release, so tvOS repeats on its
+own; over IR it is `start_repeat`, so the emitter keeps the carrier up rather than re-sending
+frames.
+
+One key at a time. A second `hold` lets go of the first — two keys down at once is a state
+nothing can get out of, and on volume it runs to the top of the range.
+
+Neither variant can hold a scan key, because tvOS has none: scrubbing *is* a hold of left or
+right. `hold {what = "scan_forward"}` is refused by name rather than aliased to something that
+would move the wrong way. Over IR, volume cannot be held either — an Apple Remote has no volume
+buttons at all, since volume belongs to whatever the box is plugged into.
 
 ## Deep links rot
 

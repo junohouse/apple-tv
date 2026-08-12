@@ -21,6 +21,17 @@ command.stop = { control = 1, invoke = "send", args = { code = "menu" } }
 # table below is keyed by the contract's own key names.
 command.dpad = { control = 1, invoke = "send", args = { code = "{key}" } }
 
+# Holding a key. The emitter keeps the carrier up rather than re-sending frames, which is what
+# scrolling a long list actually needs — tapping `down` forty times is not the same gesture.
+#
+# `what` resolves against the same table, so only the keys with codes below can be held. An
+# Apple Remote has no volume buttons at all — volume on an Apple TV belongs to whatever it is
+# plugged into — so `hold {what = "volume_up"}` finds no code, passes its name through, and the
+# emitter refuses it. That is the intended outcome rather than a gap: this driver genuinely
+# cannot ramp a volume, and the network one says so by declaring the capability differently.
+command.hold = { control = 1, invoke = "start_repeat", args = { code = "{what}" } }
+command.release = { control = 1, invoke = "stop_repeat" }
+
 [ir]
 format = "pronto"
 

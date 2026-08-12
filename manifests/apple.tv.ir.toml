@@ -17,7 +17,7 @@ id = 1
 type = "media_player"
 primary = true
 name = "Apple TV"
-capabilities = { has_transport = true, has_dpad = true, is_video_source = true, is_audio_source = true }
+capabilities = { has_transport = true, has_dpad = true, has_hold = true, is_video_source = true, is_audio_source = true }
 
 # An emitter, wired by the installer to whichever port is pointed at the box. Everything above
 # resolves to a code name and core hands the port the payload — so this works the same on a

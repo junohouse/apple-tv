@@ -127,7 +127,7 @@ dependencies = [
 [[package]]
 name = "driver-sdk"
 version = "0.13.0"
-source = "git+https://github.com/junohouse/driver-sdk?branch=main#826e6f88f15b8851ef1468aab8d95ea7a95e5f3f"
+source = "git+https://github.com/junohouse/driver-sdk?branch=main#f6f49d9cd65f9ac590e27caa4f71ccd7460ba85e"
 dependencies = [
  "serde",
  "serde_json",
