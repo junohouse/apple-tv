@@ -7,6 +7,11 @@ runtime = "wasm"
 # Names the package. Its IR sibling is the same product reached a poorer way, not a second
 # product, so this is the one a catalog should lead with.
 primary = true
+# Which column of junohouse/apps core reads for this box, so `launch_app` arrives carrying the
+# bundle id for whatever was asked for. Only ever used where the device itself did not answer —
+# a paired Apple TV reports the bundles it actually has, and that beats any table. Not on the IR
+# sibling: a one-way emitter cannot launch an app at all, by any name.
+app_platform = "apple_tv"
 
 # An Apple TV is a source and nothing else: no screen, no inputs of its own. It is never a
 # room's video sink — the television it is plugged into is — so there is no `tv` proxy here.

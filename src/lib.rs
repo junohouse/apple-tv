@@ -379,9 +379,12 @@ impl DriverModule for AppleTv {
                             .map(str::to_string)
                     });
 
+                // What the shared catalog says this platform calls the app, when core knew one.
+                // Used only where the device itself said nothing — see `links::resolve`.
                 let launch = links::resolve(
                     app,
                     installed.as_deref(),
+                    args.get("launch_id").and_then(Value::as_str),
                     args.get("content_id").and_then(Value::as_str),
                     args.get("content_kind").and_then(Value::as_str),
                 );

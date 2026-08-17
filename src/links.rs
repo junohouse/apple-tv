@@ -117,16 +117,27 @@ pub enum Launch {
 pub fn resolve(
     app: &str,
     installed: Option<&str>,
+    catalogued: Option<&str>,
     content_id: Option<&str>,
     content_kind: Option<&str>,
 ) -> Launch {
     let service = find(app);
 
-    // The bundle id to fall back to: the one the device reported, if it reported one, otherwise
-    // whatever the table knows. The device's own answer is better — it is the truth about this
-    // box, where the table is a guess about the world.
+    // The bundle id to fall back to, best answer first:
+    //
+    // 1. What the device reported. It is the truth about *this box* — the app is installed, and
+    //    that is its bundle id — where everything below is a claim about the world.
+    // 2. What core passed from the shared catalog, which is public, editable by anybody, and
+    //    reaches houses without this driver being rebuilt. See junohouse/apps.
+    // 3. The table below, which is now only a backstop: for a controller too old to send
+    //    `launch_id`, and for an app somebody removed from the catalog.
+    //
+    // The order is the point. The catalog going wrong cannot break a box that answered for
+    // itself, and this driver's own table going stale cannot outvote a correction somebody
+    // published this morning.
     let target = installed
         .map(str::to_string)
+        .or_else(|| catalogued.map(str::to_string))
         .or_else(|| service.map(|s| s.bundle.to_string()))
         .unwrap_or_else(|| app.to_string());
 
@@ -192,9 +203,9 @@ mod tests {
 
     #[test]
     fn people_do_not_say_the_full_service_name() {
-        assert!(link(resolve("disney", None, Some("abc"), None)).contains("disneyplus.com"));
-        assert!(link(resolve("Disney+", None, Some("abc"), None)).contains("disneyplus.com"));
-        assert!(link(resolve("DisneyPlus", None, Some("abc"), None)).contains("disneyplus.com"));
+        assert!(link(resolve("disney", None, None, Some("abc"), None)).contains("disneyplus.com"));
+        assert!(link(resolve("Disney+", None, None, Some("abc"), None)).contains("disneyplus.com"));
+        assert!(link(resolve("DisneyPlus", None, None, Some("abc"), None)).contains("disneyplus.com"));
     }
 
     /// A series and a film are different URLs on the services that distinguish them, and the
@@ -202,17 +213,17 @@ mod tests {
     #[test]
     fn a_series_uses_the_series_template_where_there_is_one() {
         assert_eq!(
-            link(resolve("hulu", None, Some("x1"), Some("series"))),
+            link(resolve("hulu", None, None, Some("x1"), Some("series"))),
             "hulu://series/x1"
         );
         assert_eq!(
-            link(resolve("hulu", None, Some("x1"), Some("movie"))),
+            link(resolve("hulu", None, None, Some("x1"), Some("movie"))),
             "hulu://watch/x1"
         );
         // An episode is a thing you watch, so it takes the series-shaped link on Hulu and the
         // show link on Apple TV. What matters is that it is not silently treated as a film.
         assert_eq!(
-            link(resolve("hulu", None, Some("x1"), Some("episode"))),
+            link(resolve("hulu", None, None, Some("x1"), Some("episode"))),
             "hulu://series/x1"
         );
     }
@@ -221,7 +232,7 @@ mod tests {
     /// report success for a link that did nothing.
     #[test]
     fn a_service_that_stopped_deep_linking_launches_and_explains() {
-        let (target, why) = app_only(resolve("Netflix", None, Some("80234304"), Some("series")));
+        let (target, why) = app_only(resolve("Netflix", None, None, Some("80234304"), Some("series")));
         assert_eq!(target, "com.netflix.Netflix");
         let why = why.expect("a dead deep link has to be explained");
         assert!(why.contains("home screen"), "{why}");
@@ -234,6 +245,7 @@ mod tests {
         let (target, why) = app_only(resolve(
             "Some Regional Broadcaster",
             Some("se.svt.play"),
+            None,
             Some("abc"),
             None,
         ));
@@ -241,9 +253,66 @@ mod tests {
         assert!(why.unwrap().contains("no deep link"));
 
         // And with no content id there is nothing to explain.
-        let (target, why) = app_only(resolve("Whatever", Some("com.x.y"), None, None));
+        let (target, why) = app_only(resolve("Whatever", Some("com.x.y"), None, None, None));
         assert_eq!(target, "com.x.y");
         assert!(why.is_none());
+    }
+
+    /// The device, then the catalog, then this table — and each one only where the one above it
+    /// had nothing.
+    ///
+    /// The order is the whole design. A catalog anybody may edit must not be able to redirect a
+    /// launch on a box that answered for itself; a table compiled in here must not be able to
+    /// outvote a correction published this morning.
+    #[test]
+    fn the_box_beats_the_catalog_beats_this_table() {
+        // The device answered. Nothing else gets a say, even for an app all three know.
+        let (target, _) = app_only(resolve(
+            "Netflix",
+            Some("com.netflix.FromTheBox"),
+            Some("com.netflix.FromTheCatalog"),
+            None,
+            None,
+        ));
+        assert_eq!(target, "com.netflix.FromTheBox");
+
+        // It did not. The catalog is next, and beats the entry below.
+        let (target, _) = app_only(resolve(
+            "Netflix",
+            None,
+            Some("com.netflix.FromTheCatalog"),
+            None,
+            None,
+        ));
+        assert_eq!(target, "com.netflix.FromTheCatalog");
+
+        // Neither said anything — an older controller that sends no `launch_id`. The table is
+        // what is left, and it is why it stays.
+        let (target, _) = app_only(resolve("Netflix", None, None, None, None));
+        assert_eq!(target, "com.netflix.Netflix");
+
+        // A catalogued app this driver has never heard of launches on the catalog's word alone.
+        // That is the point of it: a service added last week needs no release here.
+        let (target, _) = app_only(resolve("Peacock", None, Some("com.peacocktv.tvos"), None, None));
+        assert_eq!(target, "com.peacocktv.tvos");
+    }
+
+    /// A catalog id is a *bundle*, not a deep link. It must not silently become one.
+    #[test]
+    fn a_catalog_id_does_not_make_a_dead_deep_link_look_alive() {
+        let (target, why) = app_only(resolve(
+            "Netflix",
+            None,
+            Some("com.netflix.FromTheCatalog"),
+            Some("80234304"),
+            Some("series"),
+        ));
+        assert_eq!(target, "com.netflix.FromTheCatalog");
+        assert!(
+            why.unwrap().contains("home screen"),
+            "Netflix stopped honouring deep links; a bundle id from the catalog changes nothing \
+             about that, and saying otherwise would report success for a title that never opened"
+        );
     }
 
     /// A URL that arrived already resolved goes straight through. Share sheets produce these and
@@ -251,12 +320,12 @@ mod tests {
     #[test]
     fn an_already_resolved_url_is_passed_through_untouched() {
         let url = "https://tv.apple.com/us/episode/foo/umc.cmc.abc123";
-        assert_eq!(link(resolve("Apple TV", None, Some(url), Some("episode"))), url);
+        assert_eq!(link(resolve("Apple TV", None, None, Some(url), Some("episode"))), url);
     }
 
     #[test]
     fn an_empty_content_id_is_the_same_as_none() {
-        let (_, why) = app_only(resolve("Netflix", None, Some(""), None));
+        let (_, why) = app_only(resolve("Netflix", None, None, Some(""), None));
         assert!(why.is_none(), "an empty id is not a failed deep link");
     }
 }
