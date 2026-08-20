@@ -1,4 +1,4 @@
-//! OPACK — Apple's serialisation format, as carried inside a Companion frame.
+//! OPACK — Apple's serialization format, as carried inside a Companion frame.
 //!
 //! It is CoreUtils-internal and undocumented; what is here is the reverse-engineered subset
 //! that a remote actually needs, matching pyatv's implementation. Everything Companion sends

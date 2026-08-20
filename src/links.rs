@@ -85,7 +85,7 @@ const SERVICES: &[Service] = &[
     },
 ];
 
-fn normalise(s: &str) -> String {
+fn normalize(s: &str) -> String {
     s.to_lowercase()
         .chars()
         .filter(|c| c.is_alphanumeric())
@@ -93,11 +93,11 @@ fn normalise(s: &str) -> String {
 }
 
 fn find(app: &str) -> Option<&'static Service> {
-    let want = normalise(app);
+    let want = normalize(app);
     SERVICES.iter().find(|s| {
         s.aliases
             .iter()
-            .any(|a| normalise(a) == want || want.starts_with(&normalise(a)))
+            .any(|a| normalize(a) == want || want.starts_with(&normalize(a)))
     })
 }
 
@@ -117,7 +117,7 @@ pub enum Launch {
 pub fn resolve(
     app: &str,
     installed: Option<&str>,
-    catalogued: Option<&str>,
+    catalogd: Option<&str>,
     content_id: Option<&str>,
     content_kind: Option<&str>,
 ) -> Launch {
@@ -137,7 +137,7 @@ pub fn resolve(
     // published this morning.
     let target = installed
         .map(str::to_string)
-        .or_else(|| catalogued.map(str::to_string))
+        .or_else(|| catalogd.map(str::to_string))
         .or_else(|| service.map(|s| s.bundle.to_string()))
         .unwrap_or_else(|| app.to_string());
 
@@ -291,7 +291,7 @@ mod tests {
         let (target, _) = app_only(resolve("Netflix", None, None, None, None));
         assert_eq!(target, "com.netflix.Netflix");
 
-        // A catalogued app this driver has never heard of launches on the catalog's word alone.
+        // A catalogd app this driver has never heard of launches on the catalog's word alone.
         // That is the point of it: a service added last week needs no release here.
         let (target, _) = app_only(resolve("Peacock", None, Some("com.peacocktv.tvos"), None, None));
         assert_eq!(target, "com.peacocktv.tvos");
