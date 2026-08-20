@@ -76,7 +76,21 @@ type = "password"
 tooltip = "Juno's long-term key for this device. Set during setup."
 
 [discovery]
-# `_companion-link._tcp` is the one that matters — it is the service that carries control.
-# `_airplay._tcp` is browsed too because its TXT record names the model, which is the only way
-# to tell two identically-named televisions apart before either has been set up.
-mdns = ["_companion-link._tcp", "_airplay._tcp"]
+# `_companion-link._tcp` is the one that matters — it is the service that carries control, and
+# setup reads the port out of its SRV. `_airplay._tcp` is browsed too because its TXT names the
+# model, which is the only way to tell two identically-named televisions apart before either has
+# been set up.
+#
+# Both are constrained, because neither service is an Apple TV on its own. Measured on one
+# ordinary home network: `_airplay._tcp` came back from a VIZIO (`model=V505-H9`), a Hisense
+# Roku TV (`model=8217X`) and a MacBook Pro (`model=Mac14,10`), and this driver was offered for
+# all three. `_companion-link._tcp` is every Apple device in the house — the same MacBook
+# advertises it — and what separates an Apple TV is `rpMd`, which a Mac does not send at all.
+#
+# A device that does not send the key fails the rule, so "no rpMd" is a decline rather than a
+# match. That is the whole point: this driver used to claim the laptop somebody was configuring
+# from.
+mdns = [
+  { service = "_companion-link._tcp", txt = { rpMd = "AppleTV*" } },
+  { service = "_airplay._tcp", txt = { model = "AppleTV*" } },
+]
